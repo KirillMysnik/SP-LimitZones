@@ -269,5 +269,5 @@ def listener_on_player_run_command(player, user_cmd):
         speed_cap = min(speed_cap_seqs[player.index])
         if 0 < speed_cap < player.velocity.length:
             new_velocity = player.velocity
-            new_velocity.length = int(speed_cap)
+            new_velocity.length = speed_cap
             player.base_velocity = new_velocity - player.velocity

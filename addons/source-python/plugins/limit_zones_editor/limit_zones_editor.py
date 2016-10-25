@@ -45,6 +45,8 @@ MSG_LZ_START_WRONG_ORDER = SayText2(strings['lz_start wrong_order'])
 MSG_LZ_INSPECT_START = SayText2(strings['lz_inspect start'])
 MSG_LZ_INSPECT_STOP = SayText2(strings['lz_inspect stop'])
 MSG_ERR_NONE_HIGHLIGHTED = SayText2(strings['error none_highlighted'])
+MSG_ERR_INVALID_ATTACH_TO_ARG = SayText2(
+    strings['error invalid_attach_to_arg'])
 
 
 class IncorrectEditOrder(Exception):
@@ -61,6 +63,11 @@ class HighlightChoice(IntEnum):
     DELETE = 2
     TOGGLE_NOJUMP = 3
     TOGGLE_NODUCK = 4
+
+
+class VectorAttachTo(IntEnum):
+    VIEW_COORDINATES = 1
+    PLAYER_ORIGIN = 2
 
 
 players = PlayerDictionary()
@@ -321,27 +328,35 @@ highlights = Highlights()
 
 
 class ZonesEdit(dict):
-    def start_edit(self, index):
+    def start_edit(self, index, attach_to):
         if index in self:
             raise IncorrectEditOrder(
                 "You have to call end_edit on this index first")
 
-        start_vector = players[index].view_coordinates
+        if attach_to == VectorAttachTo.VIEW_COORDINATES:
+            start_vector = players[index].view_coordinates
+        else:
+            start_vector = players[index].origin
+
         if start_vector is None:
             raise InvalidCoordinates("Couldn't get start point")
 
         round_vector(start_vector, EDITOR_STEP_UNITS)
 
-        self[index] = start_vector
+        self[index] = (attach_to, start_vector)
 
     def end_edit(self, index):
         try:
-            start_vector = self.pop(index)
+            attach_to, start_vector = self.pop(index)
         except KeyError:
             raise IncorrectEditOrder(
                 "You have to call start_edit on this index first")
 
-        end_vector = players[index].view_coordinates
+        if attach_to == VectorAttachTo.VIEW_COORDINATES:
+            end_vector = players[index].view_coordinates
+        else:
+            end_vector = players[index].origin
+
         if end_vector is None:
             raise InvalidCoordinates("Couldn't get end point")
 
@@ -351,9 +366,19 @@ class ZonesEdit(dict):
         zones_storage.append(zone)
         highlights.append_zone()
 
+    def cancel_edit(self, index):
+        try:
+            del self[index]
+        except KeyError:
+            raise IncorrectEditOrder(
+                "You have to call start_edit on this index first")
+
     def tick(self):
-        for index, start_vector in self.items():
-            end_vector = players[index].view_coordinates
+        for index, (attach_to, start_vector) in self.items():
+            if attach_to == VectorAttachTo.VIEW_COORDINATES:
+                end_vector = players[index].view_coordinates
+            else:
+                end_vector = players[index].origin
 
             if end_vector is None:
                 return
@@ -499,9 +524,17 @@ def select_callback_delete(popup, index, option):
 
 @TypedClientCommand('lz_start', "limit_zones_editor.create")
 @TypedSayCommand('!lz_start', "limit_zones_editor.create")
-def typed_lz_start(command_info):
+def typed_lz_start(command_info, attach_to_str:str="view"):
+    if attach_to_str == "view":
+        attach_to = VectorAttachTo.VIEW_COORDINATES
+    elif attach_to_str == "origin":
+        attach_to = VectorAttachTo.PLAYER_ORIGIN
+    else:
+        MSG_ERR_INVALID_ATTACH_TO_ARG.send(command_info.index)
+        return
+
     try:
-        zones_edit.start_edit(command_info.index)
+        zones_edit.start_edit(command_info.index, attach_to)
     except IncorrectEditOrder:
         MSG_LZ_START_WRONG_ORDER.send(command_info.index)
     except InvalidCoordinates:
@@ -517,6 +550,15 @@ def typed_lz_start(command_info):
         MSG_LZ_END_WRONG_ORDER.send(command_info.index)
     except InvalidCoordinates:
         MSG_ERR_INVALID_COORDINATES.send(command_info.index)
+
+
+@TypedClientCommand('lz_cancel', "limit_zones_editor.create")
+@TypedSayCommand('!lz_cancel', "limit_zones_editor.create")
+def typed_lz_cancel(command_info):
+    try:
+        zones_edit.cancel_edit(command_info.index)
+    except IncorrectEditOrder:
+        MSG_LZ_END_WRONG_ORDER.send(command_info.index)
 
 
 @TypedClientCommand('lz_save_to_file', "limit_zones_editor.create")
